@@ -54,6 +54,9 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt-get install 
         xsltproc \
         xz-utils
 
+# PostgreSQL Apt Repository
+# https://www.postgresql.org/download/linux/ubuntu/
+
 # Configure apt to use the official PostgreSQL apt repo to get the latest PG version
 RUN /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh
 
