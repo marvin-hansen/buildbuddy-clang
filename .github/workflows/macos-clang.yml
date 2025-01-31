@@ -1,0 +1,196 @@
+on:
+  workflow_dispatch:
+    inputs:
+      clang_version:
+        description: "Version of clang we'll build."
+        type: string
+        required: true
+      runner:
+        description: "Type of runner to use/architecture to build for."
+        type: choice
+        options:
+          # ARM
+          - macos-latest-xlarge
+          # x86_64
+          - macos-latest-large
+      cpu_target:
+        description: "Type of CPU to optimize for."
+        type: string
+        required: false
+      github_tag:
+        description: "Tag to upload the release to."
+        type: string
+        required: true
+      overwrite:
+        description: "DANGEROUS. Overwrite the existing artifacts."
+        type: boolean
+
+name: macOS Clang
+
+jobs:
+  build_clang:
+    name: build clang macOS
+    runs-on: ${{ inputs.runner }}
+    permissions:
+      contents: write
+    steps:
+      - name: Install required tools
+        run: brew install ninja zstd
+
+      - name: Clone marvin-hansen/buildbuddy-clang
+        uses: actions/checkout@v4
+
+      - name: Clone llvm-project at Version
+        uses: actions/checkout@v4
+        with:
+          repository: llvm/llvm-project
+          ref: 'llvmorg-${{ inputs.clang_version }}'
+          fetch-depth: 1 # llvm-project is quite large
+          path: llvm-project
+
+      - name: Get args
+        run: |
+          case ${{ inputs.runner }} in
+            "macos-latest-xlarge")
+              CLANG_ARCH=aarch64
+              ZSTD_ARG="-Dzstd_LIBRARY=/opt/homebrew/opt/zstd/lib/libzstd.a"
+            ;;
+            "macos-latest-large")
+              CLANG_ARCH=x86_64
+              ZSTD_ARG=""
+            ;;
+            *)
+              echo "Programming error, unknown platform"
+              exit 1
+            ;;
+          esac
+
+          echo "CLANG_ARCH=$CLANG_ARCH" >> $GITHUB_ENV
+          echo "CLANG_TARGET=$CLANG_ARCH-apple-darwin" >> $GITHUB_ENV
+
+          CLANG_VERSION=${{ inputs.clang_version }}
+          clang_major_minor=$(echo "$CLANG_VERSION" | cut -d. -f1-2)
+          clang_major=$(echo "$CLANG_VERSION" | cut -d '.' -f 1)
+          echo "CLANG_VERSION=$CLANG_VERSION" >> $GITHUB_ENV
+          
+          echo "clang_version=$CLANG_VERSION" >> $GITHUB_ENV
+          echo "clang_major_minor=$clang_major_minor" >> $GITHUB_ENV
+          echo "clang_major=$clang_major" >> $GITHUB_ENV
+          echo "shared_extension=dylib" >> $GITHUB_ENV
+
+          echo "ZSTD_ARG=$ZSTD_ARG" >> $GITHUB_ENV
+
+          RELEASE_TAG="clang-${{ inputs.clang_version }}"
+          if [ -n "${{ inputs.github_tag }}" ]; then
+            RELEASE_TAG="${{ inputs.github_tag }}"
+          fi
+          echo "RELEASE_TAG=$RELEASE_TAG" >> $GITHUB_ENV
+
+          echo $GITHUB_ENV
+    
+      - name: cmake configure
+        # Note: Unlike Linux we don't statically link libstdc++
+        run: | 
+          cd llvm-project
+          cmake -G Ninja -S llvm -B build \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_C_FLAGS="-flto=thin -pthread" \
+              -DCMAKE_CXX_FLAGS="-flto=thin -pthread" \
+              -DCMAKE_INTERPROCEDURAL_OPTIMIZATION="on" \
+              -DLLVM_ENABLE_PROJECTS="clang;lld" \
+              -DLLVM_ENABLE_RUNTIMES="libcxx;libcxxabi;libunwind;compiler-rt" \
+              -DLLVM_DISTRIBUTION_COMPONENTS="clang-resource-headers" \
+              -DLLVM_ENABLE_LTO=Thin \
+              -DLLVM_ENABLE_PIC=ON \
+              -DLLVM_ENABLE_THREADS=ON \
+              -DLLVM_ENABLE_ZLIB=FORCE_ON \
+              -DBUILD_SHARED_LIBS=OFF \
+              -DLLVM_INCLUDE_UTILS=OFF \
+              -DLLVM_INCLUDE_TESTS=OFF \
+              -DLLVM_INCLUDE_EXAMPLES=OFF \
+              -DLLVM_INCLUDE_BENCHMARKS=OFF \
+              -DLLVM_INCLUDE_DOCS=OFF ${{ env.ZSTD_ARG }}
+
+      - name: build clang
+        run: |
+          cd llvm-project
+          cmake --build build --target \
+            clang \
+            lld \
+            llvm-ar \
+            llvm-as \
+            llvm-cov \
+            llvm-dwarfdump \
+            llvm-dwp \
+            llvm-libtool-darwin \
+            llvm-nm \
+            llvm-objcopy \
+            llvm-objdump \
+            llvm-profdata \
+            llvm-strip \
+            llvm-ranlib \
+            cxx \
+            cxxabi \
+            unwind \
+            builtins
+
+      - name: build libclang
+        run: |
+          cd llvm-project
+          cmake --build build --target libclang
+
+      - name: package toolchain
+        run: |
+          mkdir package 
+
+          for dir in bin include lib; do
+            mkdir package/$dir
+            cat clang/$dir.txt | while read -r val; do 
+              val=${val#mac:}
+              if [[ $val != linux* && -n $val ]]; then
+                eval cp -rP llvm-project/build/$dir/$val package/$dir/
+              fi
+            done
+          done
+
+          cd package
+          tar -cf - * | zstd --ultra -22 -o "../darwin_$CLANG_ARCH.tar.zst"
+
+      - name: package libclang
+        run: |
+          mkdir package_libclang
+
+          for dir in bin lib; do
+            mkdir package_libclang/$dir
+            cat clang/"$dir"_libclang.txt | while read -r val; do
+              # Skip anything that starts with "linux".
+              if [[ "$val" == linux* && -n $val ]]; then
+                  continue
+              fi
+              # Strip the 'mac:' prefix if it exists.
+              val=${val#mac:}
+
+              # Unlike Linux we build into a single directory.
+              build_dir="build"
+              # Strip the 'build:' prefix if it exists.
+              val=${val#build:}
+              eval cp -rP llvm-project/$build_dir/$dir/$val package_libclang/$dir/
+            done
+          done
+
+          cd package_libclang
+          tar -cf - * | zstd --ultra -22 -o ../darwin_"$CLANG_ARCH"_libclang.tar.zst
+
+      - name: Upload Toolchain Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: toolchains
+          path: "*.tar.zst"
+
+      - name: Upload toolchain to release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          file: "*.tar.zst"
+          file_glob: true
+          tag: ${{ env.RELEASE_TAG }}
+          overwrite: ${{ inputs.overwrite }}

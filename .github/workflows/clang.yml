@@ -1,0 +1,85 @@
+on:
+  workflow_dispatch:
+    inputs:
+      clang_bootstrap_major_version:
+        description: "Major version of clang we'll use to build the clang toolchain."
+        type: number
+        required: true
+      clang_version:
+        description: "Version of clang we'll build."
+        type: string
+        required: true
+      runner:
+        description: "Type of runner to use/architecture to build for."
+        type: choice
+        options:
+          - toolchains-ubuntu-22.04-x86
+          - toolchains-ubuntu-22.04-arm
+      cpu_target:
+        description: "Type of CPU to optimize for. (-mcpu)"
+        type: string
+        required: false
+      arch_target:
+        description: "Type of micro architecture to optimize for. (-march)"
+        type: string
+        required: false
+      github_tag:
+        description: "Tag to upload the release to."
+        type: string
+        required: true
+      overwrite:
+        description: "DANGEROUS. Overwrite the existing artifacts."
+        type: boolean
+
+name: Linux Clang
+
+jobs:
+  build_clang:
+    name: build clang ${{ inputs.runner }}
+    runs-on: ${{ inputs.runner }}
+    permissions:
+      contents: write
+    steps:
+      - name: Clone marvin-hansen/buildbuddy-clang
+        uses: actions/checkout@v4
+
+      - name: Get args
+        run: |
+          runner=${{ inputs.runner }}
+          runner_tag="${runner: -3}"
+          
+          DOCKER_IMAGE_TAG="clang-${{ inputs.clang_version }}-$runner_tag"
+          echo "DOCKER_IMAGE_TAG=$DOCKER_IMAGE_TAG" >> $GITHUB_ENV
+
+      - name: Build in Docker
+        run: |
+          cd clang
+          docker build \
+            --build-arg BOOTSTRAP_CLANG_VERSION="${{ inputs.clang_bootstrap_major_version }}" \
+            --build-arg CLANG_VERSION="${{ inputs.clang_version }}" \
+            --build-arg TARGET_CPU="${{ inputs.cpu_target }}" \
+            --build-arg TARGET_CPU_ARCH="${{ inputs.arch_target }}" \
+            --target package_image \
+            --tag "$DOCKER_IMAGE_TAG" \
+            .
+
+      - name: Package Toolchain
+        run: |
+          container_id="$(docker create $DOCKER_IMAGE_TAG)"
+          docker cp "$container_id:/downloads/artifacts" .
+
+      - name: Determine Release Tag
+        run: |
+          RELEASE_TAG="linux-$GITHUB_TAG"
+          if [ -n "${{ inputs.github_tag }}" ]; then
+            RELEASE_TAG="${{ inputs.github_tag }}"
+          fi
+          echo "RELEASE_TAG=$RELEASE_TAG" >> $GITHUB_ENV
+
+      - name: Upload toolchain to release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          file: "artifacts/*.tar.zst"
+          file_glob: true
+          tag: ${{ env.RELEASE_TAG }}
+          overwrite:  ${{ inputs.overwrite }}

@@ -1,0 +1,14 @@
+clang
+mac:libc++.1.0.dylib
+mac:libc++.1.dylib
+mac:libc++.a
+mac:libc++.dylib
+mac:libc++abi.1.0.dylib
+mac:libc++abi.1.dylib
+mac:libc++abi.a
+mac:libc++abi.dylib
+mac:libunwind.1.0.dylib
+mac:libunwind.1.dylib
+mac:libunwind.a
+mac:libunwind.dylib
+linux:$clang_target
