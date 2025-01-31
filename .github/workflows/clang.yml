@@ -13,8 +13,8 @@ on:
         description: "Type of runner to use/architecture to build for."
         type: choice
         options:
-          - toolchains-ubuntu-22.04-x86
-          - toolchains-ubuntu-22.04-arm
+          - ubuntu-22.04
+          # - toolchains-ubuntu-22.04-arm
       cpu_target:
         description: "Type of CPU to optimize for. (-mcpu)"
         type: string

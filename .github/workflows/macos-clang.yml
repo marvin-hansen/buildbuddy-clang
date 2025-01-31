@@ -9,10 +9,11 @@ on:
         description: "Type of runner to use/architecture to build for."
         type: choice
         options:
+          # https://github.com/actions/runner-images
           # ARM
-          - macos-latest-xlarge
+          - macos-15-xlarge
           # x86_64
-          - macos-latest-large
+          - macos-15-large
       cpu_target:
         description: "Type of CPU to optimize for."
         type: string
