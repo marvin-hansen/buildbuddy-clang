@@ -9,12 +9,6 @@ on:
         description: "Version of clang we'll build."
         type: string
         required: true
-      runner:
-        description: "Type of runner to use/architecture to build for."
-        type: choice
-        options:
-          - ubuntu-22.04-x86
-          - ubuntu-22.04-arm
       cpu_target:
         description: "Type of CPU to optimize for. (-mcpu)"
         type: string
@@ -31,12 +25,12 @@ on:
         description: "DANGEROUS. Overwrite the existing artifacts."
         type: boolean
 
-name: Linux Clang
+name: Linux Clang X86
 
 jobs:
   build_clang:
-    name: build clang ${{ inputs.runner }}
-    runs-on: ${{ inputs.runner }}
+    name: build clang X86
+    runs-on: ubuntu-22.04
     permissions:
       contents: write
     steps:
@@ -45,9 +39,7 @@ jobs:
 
       - name: Get args
         run: |
-          runner=${{ inputs.runner }}
-          runner_tag="${runner: -3}"
-          
+          runner_tag="x86-64"          
           DOCKER_IMAGE_TAG="clang-${{ inputs.clang_version }}-$runner_tag"
           echo "DOCKER_IMAGE_TAG=$DOCKER_IMAGE_TAG" >> $GITHUB_ENV
 
