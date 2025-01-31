@@ -14,8 +14,8 @@ which has much faster decompression times than the default `LZMA2` algorithm typ
 
 #### C (Clang)
 
-We build a Clang toolchain from the upstream source [`llvm-project`](https://github.com/llvm/llvm-project) with CMake and
-Ninja. Generally following the instructions from:
+We build a Clang toolchain from the upstream source [`llvm-project`](https://github.com/llvm/llvm-project) with CMake and Ninja. 
+Generally following the instructions from:
 
 * [Clang - Getting Started](https://clang.llvm.org/get_started.html)
 * [Building LLVM with CMake](https://llvm.org/docs/CMake.html)
