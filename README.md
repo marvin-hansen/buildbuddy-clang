@@ -29,7 +29,7 @@ the package with `zstd`.
 
 This repo started out as a fork from https://github.com/MaterializeInc/toolchains
 
-Special thanks to [@Parker](https://github.com/ParkMyCar) for open sourcing and maintaining the said repo. 
+Special thanks to [@ParkMyCar](https://github.com/ParkMyCar) for open sourcing and maintaining the said repo. 
 
 Also, special thanks to [@scasagrande ](https://github.com/scasagrande)for his work on [sysroot building for llvm toolchain.](https://github.com/scasagrande/toolchains_llvm_sysroot) 
 
