@@ -4,7 +4,7 @@ Minified Clang toolchain distribution
 
 ### About
 
-This repository contains Github Actions to build and package Rust and C toolchains for consumption with Bazel and
+This repository contains Github Actions to build and package the clang C toolchains for consumption with Bazel and
 optimized for buildbuddy CI.
 
 #### C (Clang)
