@@ -11,6 +11,16 @@ on:
         description: "Version of glibc."
         type: string
         required: true
+      libstdcxx_version:
+#        https://ftp.gnu.org/gnu/gcc/
+        description: "Version of libstdc++"
+        type: string
+        required: true
+      arch:
+        description: "Architecture to Build"
+        type: choice
+        options:
+          - x86_64
       github_tag:
         description: "Tag to upload the release to."
         type: string
@@ -34,18 +44,27 @@ jobs:
           echo "KERNEL_TAG=$KERNEL_TAG" >> $GITHUB_ENV
           GLIBC_TAG=$(tr '.' '_' <<< ${{ inputs.glibc_version }})
           echo "GLIBC_TAG=$GLIBC_TAG" >> $GITHUB_ENV
-          GITHUB_TAG=$(tr '[:upper:]' '[:lower:]' <<< "sysroot-$KERNEL_TAG-$GLIBC_TAG")
+          LIBSTDCXX_TAG=$(tr '.' '_' <<< ${{ inputs.libstdcxx_version }})
+          echo "LIBSTDCXX_TAG=$LIBSTDCXX_TAG" >> $GITHUB_ENV
+
+          GITHUB_TAG=$(tr '[:upper:]' '[:lower:]' <<< "sysroot-$KERNEL_TAG-$GLIBC_TAG-$LIBSTDCXX_TAG")
           echo "GITHUB_TAG=$GITHUB_TAG" >> $GITHUB_ENV
-          DOCKER_IMAGE_TAG=$(tr '[:upper:]' '[:lower:]' <<< "sysroot-$GITHUB_TAG-x86_64")
+          DOCKER_IMAGE_TAG=$(tr '[:upper:]' '[:lower:]' <<< "sysroot-$GITHUB_TAG-${{ inputs.arch }}")
           echo "DOCKER_IMAGE_TAG=$DOCKER_IMAGE_TAG" >> $GITHUB_ENV
+
+          libstd_version=${{ inputs.libstdcxx_version }}
+          LIBSTDCXX_MAJOR="${libstd_version%%.*}"
+          echo "LIBSTDCXX_MAJOR=$LIBSTDCXX_MAJOR" >> $GITHUB_ENV
 
       - name: Build Sysroot in Docker
         run: |
           cd sysroot
           docker build \
-            --build-arg ARCH="x86_64" \
+            --build-arg ARCH="${{ inputs.arch }}" \
             --build-arg KERNEL_VERSION="${{ inputs.kernel_version }}" \
             --build-arg GLIBC_VERSION="${{ inputs.glibc_version }}" \
+            --build-arg LIBSTDCXX_VERSION="${{ inputs.libstdcxx_version }}" \
+            --build-arg LIBSTDCXX_MAJOR="${{ env.LIBSTDCXX_MAJOR }}" \
             --tag "$DOCKER_IMAGE_TAG" \
             --target sysroot_base \
             .
@@ -58,7 +77,7 @@ jobs:
           docker cp "$container_id:/var/builds/sysroot" artifacts
 
           cd artifacts
-          tar -cf - * | zstd --ultra -22 -o "../linux-sysroot-x86_64.tar.zst"
+          tar -cf - * | zstd --ultra -22 -o "../linux-sysroot-${{ inputs.arch }}.tar.zst"
 
       - name: Determine Release Tag
         run: |

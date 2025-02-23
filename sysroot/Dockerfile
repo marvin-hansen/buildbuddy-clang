@@ -90,6 +90,16 @@ WORKDIR /downloads/glibc
 RUN curl --fail-early --location "https://ftp.gnu.org/gnu/glibc/glibc-${GLIBC_VERSION}.tar.xz" \
         | tar --xz --extract --strip-components=1 --file -
 
+FROM base_image AS gcc_download
+ARG LIBSTDCXX_VERSION
+ENV LIBSTDCXX_VERSION="${LIBSTDCXX_VERSION}"
+ARG LIBSTDCXX_MAJOR
+ENV LIBSTDCXX_MAJOR="${LIBSTDCXX_MAJOR}"
+WORKDIR /downloads/gcc
+RUN curl --fail-early --location "https://ftp.gnu.org/gnu/gcc/gcc-${LIBSTDCXX_VERSION}/gcc-${LIBSTDCXX_VERSION}.tar.xz" \
+        | tar --xz --extract --strip-components=1 --file -
+RUN ./contrib/download_prerequisites
+
 FROM base_image AS build_image
 
 WORKDIR /opt/gcc/aarch64
@@ -114,7 +124,7 @@ ENV ARCH="${ARCH}"
 RUN if [ -z "${ARCH}" ]; then >&2 echo "Missing ARCH argument"; exit 1; fi
 RUN ln -s "/opt/gcc/${ARCH}/bin/${ARCH}-linux-cpp.br_real" /lib/cpp
 
-ENV PATH="/opt/gcc/${ARCH}/bin:/opt/gcc/${ARCH}/bin:${PATH}"
+ENV PATH="/opt/gcc/x86_64/bin:/opt/gcc/${ARCH}/bin:${PATH}"
 
 ####################################################################################################
 # Build steps
@@ -144,11 +154,39 @@ FROM glibc AS glibc_pruned
 WORKDIR /var/buildlibs/glibc
 RUN rm -rf etc/ sbin/ var/ usr/bin/ usr/libexec/ usr/sbin/ usr/share/
 
+FROM build_image AS gcc
+COPY --from=gcc_download /downloads/gcc /build/gcc
+WORKDIR /build/gcc/build
+COPY --from=kernel /var/buildlibs/kernel /var/builds/sysroot
+COPY --from=glibc /var/buildlibs/glibc /var/builds/sysroot
+RUN --mount=source=configure.sh,target=/usr/bin/configure.sh IS_GCC_BUILD=1 configure.sh \
+        --enable-default-pie \
+        --enable-languages=c,c++,fortran \
+        --disable-multilib \
+        --disable-libsanitizer \
+        --prefix=/var/buildlibs/gcc \
+        --enable-libstdcxx-threads \
+        --with-build-sysroot=/var/builds/sysroot \
+        --with-sysroot=/var/builds/sysroot \
+        || (cat config.log && exit 1)
+RUN make --jobs $(nproc) all-gcc
+RUN make install-gcc
+RUN rm -v "/opt/gcc/${ARCH}/bin/"*{gcc,g++,cpp}
+ENV PATH="/var/buildlibs/gcc/bin:${PATH}"
+RUN make --jobs $(nproc)
+RUN make uninstall
+RUN make install all-target-libgcc
+RUN make install all-target-libgfortran
+RUN make install all-target-libstdc++-v3
+
+FROM gcc as gcc_pruned
+RUN --mount=source=prune_gcc.sh,target=/usr/bin/prune_gcc.sh prune_gcc.sh
+
 ####################################################################################################
 # Assemble final sysroots
 ####################################################################################################
 
 FROM build_image AS sysroot_base
 COPY --from=kernel /var/buildlibs/kernel /var/builds/sysroot
-COPY --from=kernel /var/buildlibs/kernel/usr/include /var/builds/sysroot/usr/include
 COPY --from=glibc_pruned /var/buildlibs/glibc /var/builds/sysroot
+COPY --from=gcc_pruned /var/buildlibs/gcc /var/builds/sysroot/usr
