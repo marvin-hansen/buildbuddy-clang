@@ -114,7 +114,7 @@ ENV ARCH="${ARCH}"
 RUN if [ -z "${ARCH}" ]; then >&2 echo "Missing ARCH argument"; exit 1; fi
 RUN ln -s "/opt/gcc/${ARCH}/bin/${ARCH}-linux-cpp.br_real" /lib/cpp
 
-ENV PATH="/opt/gcc/x86_64/bin:/opt/gcc/${ARCH}/bin:${PATH}"
+ENV PATH="/opt/gcc/${ARCH}/bin:/opt/gcc/${ARCH}/bin:${PATH}"
 
 ####################################################################################################
 # Build steps
