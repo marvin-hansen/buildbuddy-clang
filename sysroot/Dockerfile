@@ -105,12 +105,14 @@ FROM base_image AS build_image
 WORKDIR /opt/gcc/aarch64
 RUN curl --fail-early --location https://toolchains.bootlin.com/downloads/releases/toolchains/aarch64/tarballs/aarch64--glibc--stable-2022.08-1.tar.bz2 \
         | tar --bzip --extract --strip-components=1 --file -
+
 WORKDIR /opt/gcc/aarch64/bin
 RUN --mount=source=create_symlinks.sh,target=/usr/bin/create_symlinks.sh create_symlinks.sh arm-linux- arm-linux-gnueabihf-
 
 WORKDIR /opt/gcc/x86_64
 RUN curl --fail-early --location https://toolchains.bootlin.com/downloads/releases/toolchains/x86-64/tarballs/x86-64--glibc--stable-2022.08-1.tar.bz2 \
         | tar --bzip --extract --strip-components=1 --file -
+
 WORKDIR /opt/gcc/x86_64/bin
 RUN --mount=source=create_symlinks.sh,target=/usr/bin/create_symlinks.sh create_symlinks.sh x86_64-linux-
 WORKDIR /
@@ -122,9 +124,10 @@ WORKDIR /
 ARG ARCH
 ENV ARCH="${ARCH}"
 RUN if [ -z "${ARCH}" ]; then >&2 echo "Missing ARCH argument"; exit 1; fi
+
 RUN ln -s "/opt/gcc/${ARCH}/bin/${ARCH}-linux-cpp.br_real" /lib/cpp
 
-ENV PATH="/opt/gcc/${ARCH}/bin:/opt/gcc/${ARCH}/bin:${PATH}"
+ENV PATH="/opt/gcc/x86_64/bin:/opt/gcc/${ARCH}/bin:${PATH}"
 
 ####################################################################################################
 # Build steps
@@ -176,7 +179,6 @@ ENV PATH="/var/buildlibs/gcc/bin:${PATH}"
 RUN make --jobs $(nproc)
 RUN make uninstall
 RUN make install all-target-libgcc
-RUN make install all-target-libgfortran
 RUN make install all-target-libstdc++-v3
 
 FROM gcc as gcc_pruned
