@@ -53,6 +53,10 @@ use_repo(llvm, "llvm_toolchain", "llvm_toolchain_llvm")
 register_toolchains("@llvm_toolchain//:all")
 ```
 
+# Sysroot
+
+We also build a sysroot for the toolchain for intel and Arm. 
+
 ## Acknowledgements
 
 This repo started out as a fork from https://github.com/MaterializeInc/toolchains
