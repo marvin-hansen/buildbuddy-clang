@@ -1,0 +1,77 @@
+on:
+  workflow_dispatch:
+    inputs:
+      kernel_version:
+#        https://github.com/torvalds/linux/tags
+        description: "Version of Linux Kernel Headers."
+        type: string
+        required: true
+      glibc_version:
+#        https://sourceware.org/glibc/
+        description: "Version of glibc."
+        type: string
+        required: true
+      github_tag:
+        description: "Tag to upload the release to."
+        type: string
+        required: true
+
+name: Linux Sysroot X86
+
+jobs:
+  build_sysroot:
+    name: build sysroot X86
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - name: Clone MaterializeInc/toolchains repo
+        uses: actions/checkout@v4
+
+      - name: Get args
+        run: |
+          KERNEL_TAG=$(tr '.' '_' <<< ${{ inputs.kernel_version }})
+          echo "KERNEL_TAG=$KERNEL_TAG" >> $GITHUB_ENV
+          GLIBC_TAG=$(tr '.' '_' <<< ${{ inputs.glibc_version }})
+          echo "GLIBC_TAG=$GLIBC_TAG" >> $GITHUB_ENV
+          GITHUB_TAG=$(tr '[:upper:]' '[:lower:]' <<< "sysroot-$KERNEL_TAG-$GLIBC_TAG")
+          echo "GITHUB_TAG=$GITHUB_TAG" >> $GITHUB_ENV
+          DOCKER_IMAGE_TAG=$(tr '[:upper:]' '[:lower:]' <<< "sysroot-$GITHUB_TAG-x86_64")
+          echo "DOCKER_IMAGE_TAG=$DOCKER_IMAGE_TAG" >> $GITHUB_ENV
+
+      - name: Build Sysroot in Docker
+        run: |
+          cd sysroot
+          docker build \
+            --build-arg ARCH="x86_64" \
+            --build-arg KERNEL_VERSION="${{ inputs.kernel_version }}" \
+            --build-arg GLIBC_VERSION="${{ inputs.glibc_version }}" \
+            --tag "$DOCKER_IMAGE_TAG" \
+            --target sysroot_base \
+            .
+
+      - name: Package Sysroot
+        run: |
+          mkdir artifacts
+          
+          container_id="$(docker create $DOCKER_IMAGE_TAG)"
+          docker cp "$container_id:/var/builds/sysroot" artifacts
+
+          cd artifacts
+          tar -cf - * | zstd --ultra -22 -o "../linux-sysroot-x86_64.tar.zst"
+
+      - name: Determine Release Tag
+        run: |
+          RELEASE_TAG="linux-$GITHUB_TAG"
+          if [ -n "${{ inputs.github_tag }}" ]; then
+            RELEASE_TAG="${{ inputs.github_tag }}"
+          fi
+          echo "RELEASE_TAG=$RELEASE_TAG" >> $GITHUB_ENV
+
+      - name: Upload Artifacts to Release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          file: "linux-sysroot*.tar.zst"
+          file_glob: true
+          tag: ${{ env.RELEASE_TAG }}
+          overwrite: true

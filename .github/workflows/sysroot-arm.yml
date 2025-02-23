@@ -11,23 +11,17 @@ on:
         description: "Version of glibc."
         type: string
         required: true
-      arch:
-        description: "Architecture to Build"
-        type: choice
-        options:
-          - x86_64
-          - aarch64
       github_tag:
         description: "Tag to upload the release to."
         type: string
         required: true
 
-name: Linux Sysroot
+name: Linux Sysroot Arm64
 
 jobs:
   build_sysroot:
-    name: build sysroot ${{ inputs.arch }}
-    runs-on: toolchains-ubuntu-22.04-x86
+    name: build sysroot Arm64
+    runs-on: ubuntu-22.04-arm
     permissions:
       contents: write
     steps:
@@ -42,14 +36,14 @@ jobs:
           echo "GLIBC_TAG=$GLIBC_TAG" >> $GITHUB_ENV
           GITHUB_TAG=$(tr '[:upper:]' '[:lower:]' <<< "sysroot-$KERNEL_TAG-$GLIBC_TAG")
           echo "GITHUB_TAG=$GITHUB_TAG" >> $GITHUB_ENV
-          DOCKER_IMAGE_TAG=$(tr '[:upper:]' '[:lower:]' <<< "sysroot-$GITHUB_TAG-${{ inputs.arch }}")
+          DOCKER_IMAGE_TAG=$(tr '[:upper:]' '[:lower:]' <<< "sysroot-$GITHUB_TAG-aarch64")
           echo "DOCKER_IMAGE_TAG=$DOCKER_IMAGE_TAG" >> $GITHUB_ENV
 
       - name: Build Sysroot in Docker
         run: |
           cd sysroot
           docker build \
-            --build-arg ARCH="${{ inputs.arch }}" \
+            --build-arg ARCH="aarch64" \
             --build-arg KERNEL_VERSION="${{ inputs.kernel_version }}" \
             --build-arg GLIBC_VERSION="${{ inputs.glibc_version }}" \
             --tag "$DOCKER_IMAGE_TAG" \
@@ -64,7 +58,7 @@ jobs:
           docker cp "$container_id:/var/builds/sysroot" artifacts
 
           cd artifacts
-          tar -cf - * | zstd --ultra -22 -o "../linux-sysroot-${{ inputs.arch }}.tar.zst"
+          tar -cf - * | zstd --ultra -22 -o "../linux-sysroot-aarch64.tar.zst"
 
       - name: Determine Release Tag
         run: |
