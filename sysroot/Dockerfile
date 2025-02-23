@@ -27,6 +27,8 @@
 # This file has been further modified by @ParkMyCar on behalf of MaterializeInc
 # to support generating Linux sysroot packages via GitHub actions.
 #
+# This file has been further modified by @marvin-hansen to install libpq-dev
+# and to include kernel headers for compiling linux kernel specific sys depenendencies.
 
 FROM ubuntu:22.04 AS base_image
 
@@ -34,34 +36,40 @@ WORKDIR /bin
 SHELL ["/bin/bash", "-c"]
 
 WORKDIR /
+# Install build dependencies
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt-get install -y \
         bison \
         bzip2 \
         curl \
+        ca-certificates \
         file \
         gnupg \
         gawk \
         gettext \
         less \
         libz-dev \
+        liburing-dev \
         m4 \
         make \
         pkg-config \
         python3 \
-        postgresql-common \
         rsync \
         texinfo \
         xsltproc \
         xz-utils
 
-# PostgreSQL Apt Repository
+# Add the PostgreSQL 17 repository to get the latest PG version
 # https://www.postgresql.org/download/linux/ubuntu/
+RUN install -d /usr/share/postgresql-common/pgdg
 
-# Configure apt to use the official PostgreSQL apt repo to get the latest PG version
-RUN /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh
+# Import the repository signing key
+RUN curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc --fail https://www.postgresql.org/media/keys/ACCC4CF8.asc
 
-# Install the latest PG lib version
-RUN DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt-get install -y libpq-dev
+# Create the repository configuration file:
+RUN echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt jammy-pgdg main" > /etc/apt/sources.list.d/pgdg.list
+
+# Update the package list and install libpq-dev 17
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt-get install -y libpq-dev
 
 ####################################################################################################
 # Download steps
@@ -81,16 +89,6 @@ ENV GLIBC_VERSION="${GLIBC_VERSION}"
 WORKDIR /downloads/glibc
 RUN curl --fail-early --location "https://ftp.gnu.org/gnu/glibc/glibc-${GLIBC_VERSION}.tar.xz" \
         | tar --xz --extract --strip-components=1 --file -
-
-FROM base_image AS gcc_download
-ARG LIBSTDCXX_VERSION
-ENV LIBSTDCXX_VERSION="${LIBSTDCXX_VERSION}"
-ARG LIBSTDCXX_MAJOR
-ENV LIBSTDCXX_MAJOR="${LIBSTDCXX_MAJOR}"
-WORKDIR /downloads/gcc
-RUN curl --fail-early --location "https://ftp.gnu.org/gnu/gcc/gcc-${LIBSTDCXX_VERSION}/gcc-${LIBSTDCXX_VERSION}.tar.xz" \
-        | tar --xz --extract --strip-components=1 --file -
-RUN ./contrib/download_prerequisites
 
 FROM base_image AS build_image
 
@@ -146,43 +144,11 @@ FROM glibc AS glibc_pruned
 WORKDIR /var/buildlibs/glibc
 RUN rm -rf etc/ sbin/ var/ usr/bin/ usr/libexec/ usr/sbin/ usr/share/
 
-FROM build_image AS gcc
-COPY --from=gcc_download /downloads/gcc /build/gcc
-WORKDIR /build/gcc/build
-COPY --from=kernel /var/buildlibs/kernel /var/builds/sysroot
-COPY --from=glibc /var/buildlibs/glibc /var/builds/sysroot
-RUN --mount=source=configure.sh,target=/usr/bin/configure.sh IS_GCC_BUILD=1 configure.sh \
-        --enable-default-pie \
-        --enable-languages=c,c++,fortran \
-        --disable-multilib \
-        --disable-libsanitizer \
-        --prefix=/var/buildlibs/gcc \
-        --enable-libstdcxx-threads \
-        --with-build-sysroot=/var/builds/sysroot \
-        --with-sysroot=/var/builds/sysroot \
-        || (cat config.log && exit 1)
-RUN make --jobs $(nproc) all-gcc
-RUN make install-gcc
-RUN rm -v "/opt/gcc/${ARCH}/bin/"*{gcc,g++,cpp}
-ENV PATH="/var/buildlibs/gcc/bin:${PATH}"
-RUN make --jobs $(nproc)
-RUN make uninstall
-RUN make install all-target-libgcc
-RUN make install all-target-libgfortran
-RUN make install all-target-libstdc++-v3
-
-FROM gcc as gcc_pruned
-RUN --mount=source=prune_gcc.sh,target=/usr/bin/prune_gcc.sh prune_gcc.sh
-
 ####################################################################################################
 # Assemble final sysroots
 ####################################################################################################
 
 FROM build_image AS sysroot_base
 COPY --from=kernel /var/buildlibs/kernel /var/builds/sysroot
+COPY --from=kernel /var/buildlibs/kernel/usr/include /var/builds/sysroot/usr/include
 COPY --from=glibc_pruned /var/buildlibs/glibc /var/builds/sysroot
-COPY --from=gcc_pruned /var/buildlibs/gcc /var/builds/sysroot/usr
-
-FROM build_image as sysroot_ssl
-COPY --from=sysroot_base /var/builds/sysroot /var/builds/sysroot
-COPY --from=rhel_image_base /var/builds/sysroot /var/builds/sysroot
